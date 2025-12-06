@@ -30,32 +30,54 @@ def check_genome_files(genomes_info_path, masked_dir, unmasked_dir):
 
     # 读取基因组信息文件
     genome_df = pd.read_csv(genomes_info_path, sep='\t', index_col=0)
+    # 保留原始大小写，但同时创建小写版本用于匹配
+    original_index = genome_df.index.copy()
     genome_df.index = genome_df.index.to_series().str.lower()
 
-    for genome_name in genome_df.index:
-        # 定义基因组文件的匹配模式
-        file_patterns = [f"{genome_name}*.fa.gz", f"{genome_name}*.fasta.gz",
-                        f"{genome_name}*.fasta", f"{genome_name}*.fa"]
-
+    for i, genome_name_lower in enumerate(genome_df.index):
+        genome_name_original = original_index[i]
         # 获取基因组类型
-        genome_type = genome_df.loc[genome_name, 'genome_type']
+        genome_type = genome_df.loc[genome_name_lower, 'genome_type']
+
+        # 定义基因组文件的匹配模式（考虑大小写变体）
+        def find_genome_file(directory):
+            """在目录中查找基因组文件，考虑不同的大小写变体"""
+            file_patterns = ["fa", 'fasta', 'fa.gz', 'fasta.gz']
+
+            # 尝试原始名称和不同的大小写变体
+            name_variants = [
+                genome_name_original,  # 原始名称
+                genome_name_lower,     # 小写版本
+                genome_name_lower.title(),  # 首字母大写
+                genome_name_lower.upper()   # 全大写
+            ]
+
+            for name in name_variants:
+                for pattern in file_patterns:
+                    if pattern.endswith('.gz'):
+                        base_pattern = pattern[:-3]  # 移除.gz
+                        path_pattern = f"{name}*.{base_pattern}.gz"
+                    else:
+                        path_pattern = f"{name}*.{pattern}"
+
+                    matches = glob(os.path.join(directory, path_pattern))
+                    if matches:
+                        return True
+            return False
 
         if genome_type == 'both':
             # 检查hardmasked基因组文件是否存在
-            if not any(fnmatch.fnmatch(file.lower(), pattern) for pattern in file_patterns
-                      for file in os.listdir(masked_dir)):
-                print(f"{genome_name} hardmasked not existed")
+            if not find_genome_file(masked_dir):
+                print(f"{genome_name_original} hardmasked not existed")
                 FLAG = False
             # 检查unmasked基因组文件是否存在
-            if not any(fnmatch.fnmatch(file.lower(), pattern) for pattern in file_patterns
-                      for file in os.listdir(unmasked_dir)):
-                print(f"{genome_name} unmasked not existed")
+            if not find_genome_file(unmasked_dir):
+                print(f"{genome_name_original} unmasked not existed")
                 FLAG = False
         else:
             # 检查unmasked基因组文件是否存在
-            if not any(fnmatch.fnmatch(file.lower(), pattern) for pattern in file_patterns
-                      for file in os.listdir(unmasked_dir)):
-                print(f"{genome_name} unmasked not existed")
+            if not find_genome_file(unmasked_dir):
+                print(f"{genome_name_original} unmasked not existed")
                 FLAG = False
 
     return FLAG
@@ -129,6 +151,8 @@ def write_genome_sizes(genomes_info_path, unmasked_dir, output_dir):
         # 读取包含基因组信息的TSV文件
         try:
             genome_df = pd.read_csv(genomes_info_path, sep='\t', index_col=0)
+            # 保留原始大小写，但同时创建小写版本用于匹配
+            original_index = genome_df.index.copy()
             genome_df.index = genome_df.index.to_series().str.lower()
         except Exception as e:
             print(f"错误: 无法读取基因组信息文件 {genomes_info_path}: {e}")
@@ -137,43 +161,42 @@ def write_genome_sizes(genomes_info_path, unmasked_dir, output_dir):
         file_patterns = ["fa", 'fasta', 'fa.gz', 'fasta.gz']
 
         # 遍历所有基因组名称
-        for genome_name in genome_df.index:
+        for i, genome_name in enumerate(genome_df.index):
+            genome_name_original = original_index[i]
             fasta_file = None  # 初始化变量
+
+            # 尝试多种大小写变体查找基因组文件
+            name_variants = [
+                genome_name_original,  # 原始名称
+                genome_name,           # 小写版本
+                genome_name.title(),   # 首字母大写
+                genome_name.upper()    # 全大写
+            ]
 
             # 遍历所有可能的文件后缀模式
             for pattern in file_patterns:
-                # 构建文件路径（大小写不敏感）
                 if pattern.endswith('.gz'):
-                    # 对于gzip文件，模式应该是 *.{pattern}
                     base_pattern = pattern[:-3]  # 移除.gz
-                    path_patterns = [
-                        f"{genome_name}*.{base_pattern}.gz",
-                        f"{genome_name.title()}*.{base_pattern}.gz",
-                        f"{genome_name.upper()}*.{base_pattern}.gz"
-                    ]
+                    path_pattern = f"*.{base_pattern}.gz"
                 else:
-                    path_patterns = [
-                        f"{genome_name}*.{pattern}",
-                        f"{genome_name.title()}*.{pattern}",
-                        f"{genome_name.upper()}*.{pattern}"
-                    ]
+                    path_pattern = f"*.{pattern}"
 
-                matches = []
-                for path_pattern in path_patterns:
-                    matches = glob(os.path.join(unmasked_dir, path_pattern))
+                # 尝试每个名称变体
+                for name in name_variants:
+                    full_pattern = f"{name}{path_pattern}"
+                    matches = glob(os.path.join(unmasked_dir, full_pattern))
                     if matches:
+                        # 获取符合条件的第一个文件路径
+                        fasta_file = matches[0]
+                        print(f"找到基因组文件: {os.path.basename(fasta_file)}")
                         break
 
-                # 检查是否存在符合条件的文件
-                if matches:
-                    # 获取符合条件的第一个文件路径
-                    fasta_file = matches[0]
-                    print(f"找到基因组文件: {os.path.basename(fasta_file)}")
-                    break
+                if fasta_file is not None:
+                    break  # 找到文件，跳出循环
 
             # 检查是否找到了文件
             if fasta_file is None:
-                print(f"警告: 未找到 {genome_name} 的基因组文件，跳过处理")
+                print(f"警告: 未找到 {genome_name_original} 的基因组文件，跳过处理")
                 continue
 
             # 验证文件是否可读
