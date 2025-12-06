@@ -223,16 +223,23 @@ def write_genome_sizes(genomes_info_path, unmasked_dir, output_dir):
     print(f"基因组统计信息已保存到: {output_file}")
 
 
-def split_hardmask_genome(masked_dir, out_dir):
+def split_hardmask_genome(masked_dir, out_dir, genomes_info_path):
     """
     拆分hardmasked基因组文件，按N区域分割序列。
 
     Args:
         masked_dir (str): hardmasked基因组文件目录
         out_dir (str): 输出目录
+        genomes_info_path (str): 包含基因组信息的txt文件路径
     """
-    # 列出所有.fa文件
-    filenames = (glob(os.path.join(masked_dir, '*.fa')) +
+    # 读取基因组信息文件，获取需要处理的物种列表
+    genome_df = pd.read_csv(genomes_info_path, sep='\t', index_col=0)
+    # 保留原始大小写，但同时创建小写版本用于匹配
+    original_index = genome_df.index.copy()
+    genome_df.index = genome_df.index.to_series().str.lower()
+
+    # 获取所有可能的文件
+    all_files = (glob(os.path.join(masked_dir, '*.fa')) +
                 glob(os.path.join(masked_dir, '*.fasta')) +
                 glob(os.path.join(masked_dir, '*.gz')) +
                 glob(os.path.join(masked_dir, '*.gzip')))
@@ -241,16 +248,56 @@ def split_hardmask_genome(masked_dir, out_dir):
     out_dir = os.path.join(out_dir, 'hardmask_split')
     os.makedirs(out_dir, exist_ok=True)
 
-    for filename in filenames:
+    # 对每个基因组信息文件中的物种进行处理
+    for i, genome_name_lower in enumerate(genome_df.index):
+        genome_name_original = original_index[i]
+        genome_type = genome_df.loc[genome_name_lower, 'genome_type']
+
+        # 只处理类型为'both'的基因组（因为有hardmasked版本）
+        if genome_type != 'both':
+            continue
+
+        # 尝试多种大小写变体查找基因组文件
+        name_variants = [
+            genome_name_original,  # 原始名称
+            genome_name_lower,     # 小写版本
+            genome_name_lower.title(),  # 首字母大写
+            genome_name_lower.upper()   # 全大写
+        ]
+
+        # 查找匹配的文件
+        found_file = None
+        for name in name_variants:
+            for file in all_files:
+                basename = os.path.basename(file)
+                # 检查文件名是否以基因组名称开头（考虑不同后缀，包括hardmasked）
+                if (basename.startswith(f"{name}.fa") or
+                    basename.startswith(f"{name}.fasta") or
+                    basename.startswith(f"{name}.fa.gz") or
+                    basename.startswith(f"{name}.fasta.gz") or
+                    basename.startswith(f"{name}.hardmasked.fa") or
+                    basename.startswith(f"{name}.hardmasked.fasta") or
+                    basename.startswith(f"{name}.hardmasked.fa.gz") or
+                    basename.startswith(f"{name}.hardmasked.fasta.gz")):
+                    found_file = file
+                    break
+            if found_file:
+                break
+
+        if not found_file:
+            print(f"警告: 未找到 {genome_name_original} 的hardmasked基因组文件，跳过处理")
+            continue
+
+        filename = found_file
         # 创建pyfastx Fasta对象
         fa = pyfastx.Fasta(filename, build_index=True, uppercase=True)
 
         # 生成输出文件名
         outfilename = (os.path.join(out_dir, os.path.basename(filename))
-                      .replace('.fa', '_sp.txt')
-                      .replace('.fasta', '_sp.txt')
+                      .replace('.fasta.gz', '_sp.txt')
                       .replace('.fa.gz', '_sp.txt')
-                      .replace('.fasta.gz', '_sp.txt'))
+                      .replace('.fasta', '_sp.txt')
+                      .replace('.fa', '_sp.txt'))
 
         # 打开输出文件
         with open(outfilename, 'w') as outio:
@@ -261,3 +308,5 @@ def split_hardmask_genome(masked_dir, out_dir):
                 for seq_in_list in seqlist:
                     if seq_in_list:  # 只输出非空序列
                         print(seq_in_list, file=outio)
+
+        print(f"已处理 {genome_name_original} 的hardmasked基因组文件")

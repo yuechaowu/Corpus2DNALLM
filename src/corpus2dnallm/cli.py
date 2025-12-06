@@ -272,7 +272,7 @@ def run_prepare_genome(args):
         )
 
         split_mask_dir = os.path.join(args.output_dir, 'hardmask_split')
-        genome_size.split_hardmask_genome(args.masked_dir, args.output_dir)
+        genome_size.split_hardmask_genome(args.masked_dir, args.output_dir, args.genomes_info_path)
 
         print(f"基因组统计完成，结果保存在: {args.output_dir}")
         return True
