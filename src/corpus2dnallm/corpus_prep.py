@@ -13,9 +13,30 @@ import numpy as np
 import pandas as pd
 
 
+def process_sequence(sequence, min_length):
+    """
+    处理序列：替换N为空白并检查长度
+
+    Args:
+        sequence (str): 原始序列
+        min_length (int): 最小序列长度
+
+    Returns:
+        str: 处理后的序列，如果不符合要求返回None
+    """
+    # 将所有N或n替换为空白
+    processed_seq = sequence.replace('N', '').replace('n', '')
+
+    # 检查处理后的序列长度
+    if len(processed_seq) < min_length:
+        return None
+
+    return processed_seq
+
+
 def prepare_genome_corpus(genomes_info_path, unmasked_dir, split_mask_dir,
                          genome_size_file, output_file, max_length=4000,
-                         genome_split_size=500):
+                         genome_split_size=500, min_seq_length=100):
     """
     准备基因组语料库
 
@@ -27,6 +48,7 @@ def prepare_genome_corpus(genomes_info_path, unmasked_dir, split_mask_dir,
         output_file (str): 输出文件路径
         max_length (int): 拆分序列的最长长度，默认为4000
         genome_split_size (int): 拆分Unmasked基因组的最大长度(MB)，默认为500
+        min_seq_length (int): 过滤后的最小序列长度，默认为100
     """
     # 读取基因组信息
     genome_df = pd.read_csv(genomes_info_path, sep='\t', index_col=0)
@@ -51,16 +73,16 @@ def prepare_genome_corpus(genomes_info_path, unmasked_dir, split_mask_dir,
                 # 处理有masked和unmasked两种类型的基因组
                 process_both_types(genome_name, genome_name_original, unmasked_dir, split_mask_dir,
                                   genome_size_mb, genome_split_size,
-                                  max_length, outfile)
+                                  max_length, outfile, min_seq_length)
             else:
                 # 只处理unmasked基因组
                 process_unmasked_only(genome_name, genome_name_original, unmasked_dir,
                                     genome_size_mb, genome_split_size,
-                                    max_length, outfile)
+                                    max_length, outfile, min_seq_length)
 
 
 def process_both_types(genome_name, genome_name_original, unmasked_dir, split_mask_dir,
-                      genome_size_mb, genome_split_size, max_length, outfile):
+                      genome_size_mb, genome_split_size, max_length, outfile, min_seq_length):
     """
     处理同时有masked和unmasked的基因组
 
@@ -76,7 +98,7 @@ def process_both_types(genome_name, genome_name_original, unmasked_dir, split_ma
     if genome_size_mb < genome_split_size:
         # 小基因组，使用全部unmasked序列
         print(f"  小基因组: 使用全部unmasked序列")
-        process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile)
+        process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile, None, min_seq_length)
     else:
         # 大基因组，混合使用masked和unmasked
         print(f"  大基因组: 混合使用masked和unmasked序列")
@@ -84,17 +106,17 @@ def process_both_types(genome_name, genome_name_original, unmasked_dir, split_ma
         # 处理masked部分
         masked_file = find_split_mask_file(split_mask_dir, genome_name_original)
         if masked_file:
-            masked_size = process_masked_genome(masked_file, max_length, outfile, 250)
+            masked_size = process_masked_genome(masked_file, max_length, outfile, 250, min_seq_length)
             print(f"  处理了 {masked_size} MB masked序列")
         else:
             print(f"  警告: 未找到{genome_name}的masked文件")
 
         # 处理unmasked部分 (最多250MB)
-        process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile, 250)
+        process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile, 250, min_seq_length)
 
 
 def process_unmasked_only(genome_name, genome_name_original, unmasked_dir, genome_size_mb,
-                         genome_split_size, max_length, outfile):
+                         genome_split_size, max_length, outfile, min_seq_length):
     """
     处理只有unmasked的基因组
 
@@ -109,12 +131,12 @@ def process_unmasked_only(genome_name, genome_name_original, unmasked_dir, genom
     if genome_size_mb < genome_split_size:
         # 小基因组，使用全部序列
         print(f"  小基因组: 使用全部序列")
-        process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile)
+        process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile, None, min_seq_length)
     else:
         # 大基因组，只使用部分序列
         print(f"  大基因组: 使用部分序列 ({genome_split_size} MB)")
         process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length,
-                              outfile, genome_split_size)
+                              outfile, genome_split_size, min_seq_length)
 
 
 def find_split_mask_file(split_mask_dir, genome_name):
@@ -175,16 +197,18 @@ def find_genome_file(directory, genome_name):
 
 
 def process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max_length, outfile,
-                           max_mb=None):
+                           max_mb=None, min_seq_length=100):
     """
     处理unmasked基因组文件
 
     Args:
         genome_name (str): 基因组名称
+        genome_name_original (str): 原始基因组名称
         unmasked_dir (str): unmasked文件目录
         max_length (int): 最大序列长度
         outfile: 输出文件句柄
         max_mb (float): 最大处理大小(MB)，None表示无限制
+        min_seq_length (int): 过滤后的最小序列长度，默认为100
     """
     genome_file = find_genome_file(unmasked_dir, genome_name_original)
     if not genome_file:
@@ -203,9 +227,13 @@ def process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max
         # 拆分序列
         for i in range(0, len(sequence), max_length):
             sub_seq = sequence[i:i + max_length]
-            if len(sub_seq) >= 100:  # 过滤过短的序列
-                print(sub_seq, file=outfile)
-                total_chars += len(sub_seq)
+
+            # 使用process_sequence处理序列：替换N并检查长度
+            processed_seq = process_sequence(sub_seq, min_seq_length)
+
+            if processed_seq is not None:  # 序列符合要求
+                print(processed_seq, file=outfile)
+                total_chars += len(processed_seq)
 
             # 检查是否达到大小限制
             if total_chars >= max_chars:
@@ -214,7 +242,7 @@ def process_unmasked_genome(genome_name, genome_name_original, unmasked_dir, max
     return total_chars / (1024 * 1024)
 
 
-def process_masked_genome(masked_file, max_length, outfile, max_mb):
+def process_masked_genome(masked_file, max_length, outfile, max_mb, min_seq_length):
     """
     处理分割的masked基因组文件
 
@@ -223,6 +251,7 @@ def process_masked_genome(masked_file, max_length, outfile, max_mb):
         max_length (int): 最大序列长度
         outfile: 输出文件句柄
         max_mb (float): 最大处理大小(MB)
+        min_seq_length (int): 过滤后的最小序列长度
 
     Returns:
         float: 处理的MB数
@@ -233,12 +262,17 @@ def process_masked_genome(masked_file, max_length, outfile, max_mb):
     with open(masked_file, 'r') as f:
         for line in f:
             sequence = line.strip().upper()
-            if len(sequence) >= 100:  # 过滤过短的序列
-                # 拆分序列
-                for i in range(0, len(sequence), max_length):
-                    sub_seq = sequence[i:i + max_length]
-                    print(sub_seq, file=outfile)
-                    total_chars += len(sub_seq)
+
+            # 拆分序列
+            for i in range(0, len(sequence), max_length):
+                sub_seq = sequence[i:i + max_length]
+
+                # 使用process_sequence处理序列：替换N并检查长度
+                processed_seq = process_sequence(sub_seq, min_seq_length)
+
+                if processed_seq is not None:  # 序列符合要求
+                    print(processed_seq, file=outfile)
+                    total_chars += len(processed_seq)
 
             # 检查是否达到大小限制
             if total_chars >= max_chars:

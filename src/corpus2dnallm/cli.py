@@ -115,6 +115,12 @@ def create_parser():
         default=500,
         help='拆分Unmasked基因组的最大长度(MB) (默认: 500)'
     )
+    corpus_parser.add_argument(
+        '--min-seq-length',
+        type=int,
+        default=100,
+        help='过滤后的最小序列长度 (默认: 100)'
+    )
 
     # train-tokenizer 子命令
     tokenizer_parser = subparsers.add_parser(
@@ -230,6 +236,12 @@ def create_parser():
         help='拆分Unmasked基因组的最大长度(MB) (默认: 500)'
     )
     all_parser.add_argument(
+        '--min-seq-length',
+        type=int,
+        default=100,
+        help='过滤后的最小序列长度 (默认: 100)'
+    )
+    all_parser.add_argument(
         '--vocab-size',
         type=int,
         default=8192,
@@ -293,7 +305,8 @@ def run_prepare_corpus(args):
         args.genome_size_file,
         args.output_file,
         args.max_seq_length,
-        args.genome_split_size
+        args.genome_split_size,
+        args.min_seq_length
     )
 
     print(f"语料库准备完成，结果保存在: {args.output_file}")
@@ -365,7 +378,8 @@ def run_all(args):
         genome_size_file=genome_size_file,
         output_file=corpus_file,
         max_seq_length=args.max_seq_length,
-        genome_split_size=args.genome_split_size
+        genome_split_size=args.genome_split_size,
+        min_seq_length=args.min_seq_length
     )
     run_prepare_corpus(corpus_args)
 
