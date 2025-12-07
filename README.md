@@ -17,6 +17,14 @@ Corpus2DNALLM 是一个专业的生物信息学工具，用于将基因组序列
 - 🔧 **BPE分词器训练** - 使用SentencePiece训练高性能BPE分词器
 - ⚙️ **配置文件生成** - 生成HuggingFace Transformers兼容的配置文件
 
+### 新增功能特性
+
+- 🔄 **文件名大小写不敏感匹配** - 自动匹配不同大小写格式的基因组文件
+- 🎯 **指定物种处理** - 通过配置文件灵活选择需要处理的物种
+- 🧹 **N字符过滤** - 自动替换或移除序列中的N字符
+- 📏 **序列长度过滤** - 支持最小和最大序列长度限制
+- 💾 **大基因组智能处理** - 根据基因组大小自动选择最优处理策略
+
 ## 🚀 快速开始
 
 ### 安装
@@ -41,10 +49,12 @@ pip install -e .
 
 ```bash
 corpus2dnallm all \
-    --genomes-info-path data/genomes_info.tsv \
-    --masked-dir data/masked/ \
-    --unmasked-dir data/unmasked/ \
-    --output-dir output/
+    --genomes-info-path data/AllPlant/species.txt \
+    --masked-dir /mnt/data2/wuyuechao/model_genome/hardmasked \
+    --unmasked-dir /mnt/data2/wuyuechao/model_genome/unmasked \
+    --output-dir data/AllPlant \
+    --max-seq-length 3000 \
+    --min-seq-length 100
 ```
 
 #### 2. 分步骤执行
@@ -52,31 +62,48 @@ corpus2dnallm all \
 ```bash
 # 步骤1: 准备基因组
 corpus2dnallm prepare-genome \
-    --genomes-info-path data/genomes_info.tsv \
-    --masked-dir data/masked/ \
-    --unmasked-dir data/unmasked/ \
-    --output-dir output/
+    --genomes-info-path data/AllPlant/species.txt \
+    --masked-dir /mnt/data2/wuyuechao/model_genome/hardmasked \
+    --unmasked-dir /mnt/data2/wuyuechao/model_genome/unmasked \
+    --output-dir data/AllPlant
 
 # 步骤2: 准备语料库
 corpus2dnallm prepare-corpus \
-    --genomes-info-path data/genomes_info.tsv \
-    --unmasked-dir data/unmasked/ \
-    --split-mask-dir output/hardmask_split/ \
-    --genome-size-file output/genome_sizes.txt \
-    --output-file output/corpus.txt
+    --genomes-info-path data/AllPlant/species.txt \
+    --unmasked-dir /mnt/data2/wuyuechao/model_genome/unmasked \
+    --split-mask-dir data/AllPlant/hardmask_split \
+    --genome-size-file data/AllPlant/genome_sizes.txt \
+    --output-file data/corpus/AllPlant_corpus_3k.txt \
+    --max-seq-length 3000 \
+    --min-seq-length 100
 
 # 步骤3: 训练分词器
 corpus2dnallm train-tokenizer \
-    --input-file output/corpus.txt \
-    --model-prefix output/dna_tokenizer \
+    --input-file data/corpus/AllPlant_corpus_3k.txt \
+    --model-prefix data/corpus/dna_tokenizer \
     --vocab-size 8192
 
 # 步骤4: 生成配置文件
 corpus2dnallm generate-config \
-    --model-path output/dna_tokenizer.model \
+    --model-path data/corpus/dna_tokenizer.model \
     --example-config-file examples/tokenizer_config.json \
     --example-tokenizer-file examples/tokenizer.json \
-    --output-dir output/
+    --output-dir data/corpus/
+```
+
+#### 3. 推荐配置
+
+**植物基因组处理 (大型数据集):**
+```bash
+corpus2dnallm prepare-corpus \
+    --genomes-info-path data/AllPlant/species.txt \
+    --unmasked-dir /path/to/unmasked \
+    --split-mask-dir /path/to/hardmask_split \
+    --genome-size-file data/AllPlant/genome_sizes.txt \
+    --output-file data/corpus/plant_corpus.txt \
+    --max-seq-length 3000 \
+    --min-seq-length 100 \
+    --genome-split-size 500
 ```
 
 ## 📋 命令参考
@@ -99,6 +126,13 @@ corpus2dnallm [子命令] [选项]
 - `--unmasked-dir`: unmasked基因组文件目录
 - `--output-dir`: 输出目录
 
+**功能特性:**
+- 🔄 支持文件名大小写不敏感匹配
+- 📁 支持多种FASTA格式 (.fa, .fasta, .fa.gz, .fasta.gz)
+- 📊 自动生成详细的基因组统计信息
+- 🔍 智能文件发现和验证
+- 🎯 只处理配置文件中指定的物种
+
 **输出文件:**
 - `genome_sizes.txt` - 基因组统计信息
 - `hardmask_split/` - 按N区域拆分的masked序列
@@ -115,6 +149,14 @@ corpus2dnallm [子命令] [选项]
 - `--output-file`: 输出语料库文件路径
 - `--max-seq-length`: 最大序列长度 (默认: 4000)
 - `--genome-split-size`: 基因组拆分大小阈值(MB) (默认: 500)
+- `--min-seq-length`: 最小序列长度过滤 (默认: 100)
+
+**功能特性:**
+- 🧹 自动移除或替换序列中的N字符
+- 📏 支持最小和最大序列长度过滤
+- 🎯 智能处理不同大小的基因组
+- 💾 大基因组内存优化处理
+- 🔄 文件名大小写不敏感匹配
 
 **处理逻辑:**
 - 小于500MB的基因组: 使用全部unmasked序列
@@ -154,19 +196,21 @@ corpus2dnallm [子命令] [选项]
 
 ## 📁 输入文件格式
 
-### 基因组信息文件 (`genomes_info.tsv`)
+### 基因组信息文件 (`species.txt` 或 `genomes_info.tsv`)
 
 TSV格式，包含基因组名称和类型：
 
 ```tsv
 genome_name    genome_type
-human          both
-mouse          both
-yeast          unmasked
+Arabidopsis    both
+Oryza         both
+Zea           unmasked
 ```
 
-- `genome_name`: 基因组名称 (小写)
-- `genome_type`: `both` (有masked和unmasked) 或 `unmasked` (只有unmasked)
+- `genome_name`: 基因组名称 (支持大小写混合，如 "Arabidopsis", "Oryza_sativa")
+- `genome_type`:
+  - `both` (有masked和unmasked文件)
+  - `unmasked` (只有unmasked文件)
 
 ### 基因组文件
 
@@ -174,10 +218,11 @@ yeast          unmasked
 - `.fa`, `.fasta` - 未压缩FASTA
 - `.fa.gz`, `.fasta.gz` - gzip压缩FASTA
 
-文件命名示例：
-- `human.fa.gz`
-- `mouse.fasta`
-- `yeast.fa`
+文件命名示例（支持大小写不敏感匹配）：
+- `Arabidopsis.fa.gz`
+- `oryza_sativa.fasta`
+- `ZEA_mays.fa`
+- `speciesA.hardmasked.fa.gz`
 
 ## 🔄 工作流程
 
@@ -217,6 +262,14 @@ graph TD
 - **最小长度**: 100个碱基 (过滤过短序列)
 - **特殊字符**: 转换为大写字母
 - **masked区域**: 按N字符序列分割
+
+### 序列处理规则
+
+- **最大长度**: 可配置 (默认4000个碱基)
+- **最小长度**: 可配置 (默认100个碱基)
+- **字符处理**: 自动移除N/n字符，转换为大写字母
+- **masked区域**: 按N字符序列分割，生成独立片段
+- **文件匹配**: 大小写不敏感，支持多种命名格式
 
 ## ⚙️ 配置选项
 
@@ -329,6 +382,20 @@ A: 检查：
 - 语料库文件是否为空
 - 词汇表大小是否合理
 - 输入文件编码是否为UTF-8
+
+**Q: 处理结果不符合预期**
+
+A: 检查配置：
+- 确认 `--min-seq-length` 设置合理
+- 检查基因组信息文件格式
+- 验证输入FASTA文件质量
+
+**Q: 文件名大小写不匹配**
+
+A: 确认：
+- 文件命名与配置文件中的基因组名称一致
+- 支持大小写不敏感匹配
+- 检查文件扩展名是否正确
 
 ### 日志调试
 
